@@ -1,0 +1,68 @@
+# Confirmation run for CI-only scans with remediation PRs on an App-onboarded project.
+# Target repo: tsaekao-endor-org/prysm-bazel-demo (Endor GitHub App installation 82914757).
+#
+# Not a customer-ready workflow. It mirrors the Dependabot runtime from
+# src/helm/endorctl/Dockerfile (Go path only) because a plain runner lacks /dependabot/*,
+# which the PR plugin requires (dependabot.go). It does not use --use-bazel: the PR plugin only
+# needs the project's existing VersionUpgrade data plus a scan that evaluates the remediation
+# policy, and a full Bazel build of Prysm does not fit a hosted runner.
+name: Endor Remediation PR (CI only)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    # The pinned Ruby binary below is built for Ubuntu 22.04.
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    permissions:
+      id-token: write        # keyless Endor auth
+      contents: write        # push the remediation branch
+      pull-requests: write   # open the remediation PR
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Dependabot runtime (Go path)
+        run: |
+          set -eux
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential bzip2 libffi-dev libgdbm-dev libncurses-dev libsqlite3-dev \
+            libreadline-dev libssl-dev libbz2-dev liblzma-dev zlib1g-dev libyaml-dev
+          sudo mkdir -p /dependabot/ruby /dependabot/gems /dependabot/native-helpers /dependabot/go
+          sudo chown -R "$(id -u):$(id -g)" /dependabot
+
+          wget -q https://rvm.io/binaries/ubuntu/22.04/x86_64/ruby-3.2.2.tar.bz2 -O /tmp/ruby.tar.bz2
+          echo "84c793c5bea4b17d9b3cefcaf562c2e9d611d67f34a971559416074942d4c03e  /tmp/ruby.tar.bz2" | sha256sum -c
+          tar --bzip2 -xf /tmp/ruby.tar.bz2 -C /dependabot/ruby --strip-components=1
+
+          export PATH="/dependabot/ruby/bin:$PATH"
+          export GEM_HOME=/dependabot/gems
+          export DEPENDABOT_NATIVE_HELPERS_PATH=/dependabot/native-helpers
+          gem install dependabot-omnibus -v 0.303.0 --no-document --force --no-post-install-message
+
+          wget -q https://go.dev/dl/go1.26.6.linux-amd64.tar.gz -O /tmp/go.tar.gz
+          echo "708effb774be8237570d0add163225abbdfaf4fca28b2611df167beba4feef89  /tmp/go.tar.gz" | sha256sum -c
+          tar -xzf /tmp/go.tar.gz -C /dependabot/go --strip-components=1
+          /dependabot/ruby/bin/ruby --version
+
+      - name: Endor Labs Scan
+        uses: endorlabs/github-action@main
+        env:
+          # Takes precedence over any GitHub App installation token.
+          ENDOR_SCAN_SCM_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ENDOR_SCAN_REMEDIATION_ACTION: "true"
+        with:
+          namespace: "endor-solutions-tsaekao.github-app"
+          api: "https://api.endorlabs.com"
+          pr: false
+          enable_github_action_token: true
+          scan_dependencies: true
+          additional_args: "--as-default-branch --log-level=debug"

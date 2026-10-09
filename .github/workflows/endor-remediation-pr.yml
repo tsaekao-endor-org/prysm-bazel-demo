@@ -59,6 +59,9 @@ jobs:
           # Takes precedence over any GitHub App installation token.
           ENDOR_SCAN_SCM_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ENDOR_SCAN_REMEDIATION_ACTION: "true"
+          # Run 1 failed in Dependabot's go get: the old module github.com/lyft/protoc-gen-validate
+          # was fetched with git ls-remote and its repo is gone. The proxy still serves it.
+          GOPROXY: https://proxy.golang.org
         with:
           namespace: "endor-solutions-tsaekao.github-app"
           api: "https://api.endorlabs.com"
